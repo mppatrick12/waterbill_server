@@ -1,6 +1,7 @@
 /** Production frontend — always allowed even if env vars are missing on Render */
 const DEFAULT_ORIGINS = [
   'https://water-bill-gamma.vercel.app',
+  'https://water-bill-system.vercel.app',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
 ];

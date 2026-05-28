@@ -1,5 +1,5 @@
 # Render Blueprint — backend API (https://dashboard.render.com)
-# Frontend: deploy separately on Vercel (https://water-bill-gamma.vercel.app)
+# Frontend: deploy separately on Vercel (https://water-bill-system.vercel.app)
 services:
   - type: web
     name: water-bill-api
@@ -12,9 +12,9 @@ services:
       - key: NODE_ENV
         value: production
       - key: FRONTEND_URL
-        value: https://water-bill-gamma.vercel.app
+        value: https://water-bill-system.vercel.app
       - key: ALLOWED_ORIGINS
-        value: https://water-bill-gamma.vercel.app,http://localhost:5173
+        value: https://water-bill-system.vercel.app,http://localhost:5173,http://127.0.0.1:5173
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
