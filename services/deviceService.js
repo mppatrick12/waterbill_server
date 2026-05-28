@@ -1,8 +1,11 @@
 import { supabase } from '../config/supabase.js';
-import { createClient } from '@supabase/supabase-js';
+import { createUnavailableSupabaseClient } from '../config/supabase.js';
 
 // Admin client (explicit) — uses service role key and bypasses RLS for server operations.
-const adminSupabase = createClient(process.env.SUPABASE_URL || '', process.env.SUPABASE_SERVICE_ROLE_KEY || '');
+const adminSupabase =
+  process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
+    ? supabase
+    : createUnavailableSupabaseClient('Supabase environment variables are missing for admin device operations.');
 
 export async function listDevices() {
   const { data, error } = await supabase

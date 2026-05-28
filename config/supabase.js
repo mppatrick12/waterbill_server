@@ -19,6 +19,48 @@ export function normalizeSupabaseUrl(url) {
 const supabaseUrl = normalizeSupabaseUrl(process.env.SUPABASE_URL);
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+function createUnavailableQuery(message) {
+  const result = Promise.resolve({ data: null, error: { message } });
+  let proxy;
+
+  proxy = new Proxy(function () {}, {
+    get(_target, prop) {
+      if (prop === 'then') return result.then.bind(result);
+      if (prop === 'catch') return result.catch.bind(result);
+      if (prop === 'finally') return result.finally.bind(result);
+      return () => proxy;
+    },
+    apply() {
+      return proxy;
+    },
+  });
+
+  return proxy;
+}
+
+export function createUnavailableSupabaseClient(message = 'Supabase environment variables are missing.') {
+  const query = createUnavailableQuery(message);
+
+  const auth = {
+    getUser: async () => ({
+      data: { user: null },
+      error: { message },
+    }),
+  };
+
+  return new Proxy(
+    {},
+    {
+      get(_target, prop) {
+        if (prop === 'auth') return auth;
+        if (prop === 'from') return () => query;
+        if (prop === 'then') return undefined;
+        return () => query;
+      },
+    }
+  );
+}
+
 if (!supabaseUrl || !supabaseServiceKey) {
   console.warn('Warning: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set. API will fail on DB calls.');
 } else if (process.env.SUPABASE_URL?.includes('/rest/v1')) {
@@ -36,8 +78,11 @@ if (insecureDevSsl) {
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 }
 
-export const supabase = createClient(supabaseUrl || '', supabaseServiceKey || '', {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
+export const supabase =
+  supabaseUrl && supabaseServiceKey
+    ? createClient(supabaseUrl, supabaseServiceKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      })
+    : createUnavailableSupabaseClient();
 
 export default supabase;
