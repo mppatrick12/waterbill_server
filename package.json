@@ -1,0 +1,28 @@
+{
+  "name": "waterbill-backend",
+  "version": "1.0.0",
+  "description": "WASAC Smart Water Billing API",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "create-admin": "node scripts/create-admin.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mqtt": "^5.10.0",
+    "pg": "^8.13.1",
+    "node-cron": "^3.0.3",
+    "pdfkit": "^0.16.0",
+    "qrcode": "^1.5.4",
+    "simple-statistics": "^7.8.8",
+    "uuid": "^11.0.5"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
