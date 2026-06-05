@@ -11,6 +11,8 @@ import {
   rechargeAdminCard,
   assignAdminCardToUser,
   deleteAdminCard,
+  setAdminCardRfid,
+  prepareCardRfidScan,
 } from '../controllers/adminCardController.js';
 import {
   listAdminDevices,
@@ -29,6 +31,8 @@ router.get('/cards', authenticate, authorize(ROLES.ADMIN), listAdminCards);
 router.post('/cards', authenticate, authorize(ROLES.ADMIN), createAdminCard);
 router.patch('/cards/:cardId/assign', authenticate, authorize(ROLES.ADMIN), assignAdminCardToUser);
 router.patch('/cards/:cardId/active', authenticate, authorize(ROLES.ADMIN), setAdminCardActive);
+router.patch('/cards/:cardId/rfid', authenticate, authorize(ROLES.ADMIN), setAdminCardRfid);
+router.patch('/cards/:cardId/prepare-scan', authenticate, authorize(ROLES.ADMIN), prepareCardRfidScan);
 router.post('/cards/:cardId/recharge', authenticate, authorize(ROLES.ADMIN), rechargeAdminCard);
 router.delete('/cards/:cardId', authenticate, authorize(ROLES.ADMIN), deleteAdminCard);
 

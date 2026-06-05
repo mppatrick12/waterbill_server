@@ -23,6 +23,7 @@ function createPgClient(databaseUrl) {
   return new Client({
     connectionString: databaseUrl,
     ssl: sslEnabled ? { rejectUnauthorized: false } : undefined,
+    connectionTimeoutMillis: 5000,
   });
 }
 

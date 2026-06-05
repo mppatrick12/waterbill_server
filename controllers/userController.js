@@ -5,7 +5,7 @@ export async function listUsers(req, res, next) {
   try {
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, user_id, username, full_name, email, phone, role, account_status, created_at')
+      .select('*')
       .order('created_at', { ascending: false });
     if (error) throw new Error(error.message);
     res.json({ success: true, users: data });
@@ -18,7 +18,7 @@ export async function listPendingCustomers(req, res, next) {
   try {
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, user_id, username, full_name, email, phone, role, account_status, created_at')
+      .select('*')
       .eq('role', ROLES.CUSTOMER)
       .eq('account_status', ACCOUNT_STATUS.PENDING)
       .order('created_at', { ascending: true });

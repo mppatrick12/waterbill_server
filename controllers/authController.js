@@ -1,4 +1,5 @@
-import { supabase } from '../config/supabase.js';
+import { createClient } from '@supabase/supabase-js';
+import { supabase, normalizeSupabaseUrl } from '../config/supabase.js';
 import { ROLES, ACCOUNT_STATUS } from '../config/constants.js';
 
 export async function register(req, res, next) {
@@ -135,7 +136,13 @@ export async function login(req, res, next) {
       return res.status(400).json({ success: false, error: 'Email and password are required' });
     }
 
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const supabaseUrl = normalizeSupabaseUrl(process.env.SUPABASE_URL);
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const tempAuthClient = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
+    const { data, error } = await tempAuthClient.auth.signInWithPassword({ email, password });
     if (error) {
       const mapped = mapAuthError(error);
       return res.status(mapped.status).json({

@@ -112,18 +112,36 @@ export async function deleteCard(cardId) {
 }
 
 export async function claimPendingCardByRfid(rfidUid) {
-  const { data: pendingCard, error: fetchError } = await supabase
+  // 1. Try to find a card explicitly marked for a scan link
+  const { data: linkTarget, error: linkError } = await supabase
     .from('cards')
     .select('*')
-    .is('user_id', null)
-    .is('rfid_uid', null)
-    .eq('registration_status', 'pending_scan')
-    .order('created_at', { ascending: true })
+    .eq('registration_status', 'pending_scan_link')
+    .order('updated_at', { ascending: false }) // most recently updated target
     .limit(1)
     .maybeSingle();
 
-  if (fetchError) throw new Error(fetchError.message);
-  if (!pendingCard) return null;
+  if (linkError) throw new Error(linkError.message);
+
+  let targetCard = linkTarget;
+
+  if (!targetCard) {
+    // 2. Fall back to standard pending registration card (unassigned card)
+    const { data: pendingCard, error: fetchError } = await supabase
+      .from('cards')
+      .select('*')
+      .is('user_id', null)
+      .is('rfid_uid', null)
+      .eq('registration_status', 'pending_scan')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (fetchError) throw new Error(fetchError.message);
+    targetCard = pendingCard;
+  }
+
+  if (!targetCard) return null;
 
   const { data, error } = await supabase
     .from('cards')
@@ -132,7 +150,7 @@ export async function claimPendingCardByRfid(rfidUid) {
       registration_status: 'registered',
       updated_at: new Date().toISOString(),
     })
-    .eq('id', pendingCard.id)
+    .eq('id', targetCard.id)
     .select()
     .single();
 

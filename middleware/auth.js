@@ -11,7 +11,31 @@ export async function authenticate(req, res, next) {
     const token = authHeader.split(' ')[1];
     const { data: { user }, error } = await supabase.auth.getUser(token);
 
-    if (error || !user) {
+    if (error) {
+      const msg = error.message || '';
+      const status = error.status;
+
+      const isNetworkOrServer =
+        !status ||
+        status >= 500 ||
+        msg.includes('fetch failed') ||
+        msg.includes('ENOTFOUND') ||
+        msg.includes('certificate') ||
+        msg.includes('connect');
+
+      if (isNetworkOrServer) {
+        console.error('[Auth] Supabase Auth network/server error:', error);
+        return res.status(503).json({
+          success: false,
+          error: 'AUTH_SERVICE_UNAVAILABLE',
+          message: 'Authentication service is temporarily unavailable. Please try again later.',
+        });
+      }
+
+      return res.status(401).json({ success: false, error: 'Invalid or expired token' });
+    }
+
+    if (!user) {
       return res.status(401).json({ success: false, error: 'Invalid or expired token' });
     }
 

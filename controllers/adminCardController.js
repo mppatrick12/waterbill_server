@@ -5,7 +5,7 @@ export async function listAdminCards(req, res, next) {
   try {
     const { data: cards, error: cardsError } = await supabase
       .from('cards')
-      .select('id, card_uid, balance_rwf, is_active, user_id, rfid_uid, registration_status')
+      .select('*')
       .order('created_at', { ascending: false });
 
     if (cardsError) throw new Error(cardsError.message);
@@ -118,6 +118,64 @@ export async function deleteAdminCard(req, res, next) {
     const { cardId } = req.params;
     const card = await cardService.deleteCard(cardId);
     res.json({ success: true, card, message: 'Card deleted' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function setAdminCardRfid(req, res, next) {
+  try {
+    const { cardId } = req.params;
+    const { rfid_uid } = req.body;
+    if (!rfid_uid) {
+      return res.status(400).json({ success: false, error: 'rfid_uid required' });
+    }
+
+    const { data, error } = await supabase
+      .from('cards')
+      .update({
+        rfid_uid: rfid_uid.trim(),
+        registration_status: 'registered',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', cardId)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+
+    res.json({ success: true, card: data, message: 'RFID UID updated successfully' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function prepareCardRfidScan(req, res, next) {
+  try {
+    const { cardId } = req.params;
+    const { deviceId } = req.body;
+    if (!deviceId) {
+      return res.status(400).json({ success: false, error: 'deviceId required' });
+    }
+
+    // Set status to pending_scan_link
+    const { data: card, error: cardError } = await supabase
+      .from('cards')
+      .update({
+        registration_status: 'pending_scan_link',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', cardId)
+      .select()
+      .single();
+
+    if (cardError) throw new Error(cardError.message);
+
+    // Publish register command to device
+    const { publishDeviceCommand } = await import('../services/mqttService.js');
+    await publishDeviceCommand(deviceId, 'register');
+
+    res.json({ success: true, card, message: 'Scan prepared. Please tap your card on the device.' });
   } catch (err) {
     next(err);
   }
