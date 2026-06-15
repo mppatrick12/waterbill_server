@@ -4,6 +4,7 @@ import {
   listPendingCustomers,
   updateAccountApproval,
   updateUserRole,
+  adminUpdateUser,
   createUser,
   deleteUser,
 } from '../controllers/userController.js';
@@ -17,6 +18,7 @@ router.get('/', authenticate, authorize(ROLES.ADMIN), listUsers);
 router.post('/', authenticate, authorize(ROLES.ADMIN), createUser);
 router.patch('/:userId/approval', authenticate, authorize(...managers), updateAccountApproval);
 router.patch('/:userId/role', authenticate, authorize(ROLES.ADMIN), updateUserRole);
+router.patch('/:userId',      authenticate, authorize(ROLES.ADMIN), adminUpdateUser);
 router.delete('/:userId', authenticate, authorize(ROLES.ADMIN), deleteUser);
 
 export default router;

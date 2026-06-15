@@ -100,15 +100,16 @@ export async function assignCardToUser(cardId, userId) {
 }
 
 export async function deleteCard(cardId) {
+  // Delete the card — FK to water_sessions/transactions is ON DELETE SET NULL in the schema
   const { data, error } = await supabase
     .from('cards')
     .delete()
     .eq('id', cardId)
-    .select('id, card_uid')
-    .single();
+    .select('id, card_uid');
 
   if (error) throw new Error(error.message);
-  return data;
+  // data is an array; return first element (or a sentinel if already gone)
+  return data?.[0] ?? { id: cardId, card_uid: 'deleted' };
 }
 
 export async function claimPendingCardByRfid(rfidUid) {
@@ -229,6 +230,7 @@ export async function reserveAndCheck(card, requestedMl) {
     return {
       allowed: false,
       reason: 'MINIMUM_BALANCE_REQUIRED',
+      message: `Your balance (${card.balance_rwf} RWF) is below the minimum required to start (${pricingConfig.minStartingBalance} RWF). Please recharge your card.`,
       balance: card.balance_rwf,
       minimumRequired: pricingConfig.minStartingBalance,
     };
@@ -238,15 +240,18 @@ export async function reserveAndCheck(card, requestedMl) {
     return {
       allowed: false,
       reason: 'INVALID_VOLUME_REQUEST',
+      message: 'Please enter a valid volume greater than zero.',
       balance: card.balance_rwf,
       required: 0,
     };
   }
 
   if (card.balance_rwf < estimatedCost) {
+    const maxL = (Math.floor(card.balance_rwf / pricingConfig.pricePerMl) / 1000).toFixed(1);
     return {
       allowed: false,
       reason: 'INSUFFICIENT_BALANCE',
+      message: `Insufficient balance. You have ${card.balance_rwf} RWF but need ${estimatedCost} RWF. You can fetch up to ${maxL} L with your current balance.`,
       balance: card.balance_rwf,
       required: estimatedCost,
       maxAffordableMl: Math.floor(card.balance_rwf / pricingConfig.pricePerMl),

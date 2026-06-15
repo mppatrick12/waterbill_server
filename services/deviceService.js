@@ -47,6 +47,16 @@ export async function setDeviceStatus(deviceId, status, lastSeenAt = new Date().
   return data;
 }
 
+export async function deleteDevice(deviceId) {
+  const { error } = await adminSupabase
+    .from('meters')
+    .delete()
+    .eq('esp32_device_id', deviceId);
+
+  if (error) throw new Error(error.message);
+  return true;
+}
+
 export async function upsertDeviceHeartbeat(deviceId, status = 'online') {
   const now = new Date().toISOString();
 

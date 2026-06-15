@@ -19,8 +19,9 @@ import {
   createAdminDevice,
   setAdminDeviceStatus,
   registerAdminDevice,
+  deleteAdminDevice,
+  getAdminMqttStatus,
 } from '../controllers/adminDeviceController.js';
-import { getAdminMqttStatus } from '../controllers/adminDeviceController.js';
 
 const router = Router();
 
@@ -40,6 +41,7 @@ router.get('/devices', authenticate, authorize(ROLES.ADMIN), listAdminDevices);
 router.post('/devices', authenticate, authorize(ROLES.ADMIN), createAdminDevice);
 router.patch('/devices/:deviceId/status', authenticate, authorize(ROLES.ADMIN), setAdminDeviceStatus);
 router.post('/devices/:deviceId/register', authenticate, authorize(ROLES.ADMIN), registerAdminDevice);
+router.delete('/devices/:deviceId', authenticate, authorize(ROLES.ADMIN), deleteAdminDevice);
 router.get('/mqtt-status', authenticate, authorize(ROLES.ADMIN), getAdminMqttStatus);
 
 export default router;

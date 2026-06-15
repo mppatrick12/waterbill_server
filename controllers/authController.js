@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { supabase, normalizeSupabaseUrl } from '../config/supabase.js';
 import { ROLES, ACCOUNT_STATUS } from '../config/constants.js';
+import { createSystemNotification, notifyAdmins } from './notificationController.js';
 
 export async function register(req, res, next) {
   try {
@@ -98,6 +99,21 @@ export async function register(req, res, next) {
         console.warn('Auto card creation failed:', e.message);
       }
     }
+
+    // Welcome notification for the new user
+    createSystemNotification({
+      userId: authUser.id,
+      type:   'system',
+      title:  '👋 Welcome to Smart Water Bill!',
+      body:   `Hello ${name}, your account has been created. ${accountStatus === ACCOUNT_STATUS.PENDING ? 'A manager will review and approve your account shortly.' : 'You can now recharge your card and fetch water at any WASAC kiosk.'}`,
+    }).catch(() => {});
+
+    // Notify admins about the new registration
+    notifyAdmins({
+      type:  'system',
+      title: `👤 New customer registered — ${name}`,
+      body:  `Email: ${loginEmail} | Status: ${accountStatus}`,
+    }).catch(() => {});
 
     res.status(201).json({
       success: true,
@@ -262,6 +278,47 @@ export async function ensureAdmin(req, res, next) {
       email,
       password,
     });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function updateProfile(req, res, next) {
+  try {
+    const userId = req.user?.id || req.user?.user_id;
+    const { full_name } = req.body;
+
+    if (!full_name || !full_name.trim()) {
+      return res.status(400).json({ success: false, error: 'full_name is required' });
+    }
+
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .update({ full_name: full_name.trim(), updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    res.json({ success: true, profile });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function changePassword(req, res, next) {
+  try {
+    const userId = req.user?.id || req.user?.user_id;
+    const { new_password } = req.body;
+
+    if (!new_password || new_password.length < 8) {
+      return res.status(400).json({ success: false, error: 'New password must be at least 8 characters' });
+    }
+
+    const { error } = await supabase.auth.admin.updateUserById(userId, { password: new_password });
+    if (error) throw new Error(error.message);
+
+    res.json({ success: true, message: 'Password changed successfully' });
   } catch (err) {
     next(err);
   }

@@ -16,9 +16,10 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "mqtt": "^5.10.0",
-    "pg": "^8.13.1",
     "node-cron": "^3.0.3",
+    "nodemailer": "^9.0.0",
     "pdfkit": "^0.16.0",
+    "pg": "^8.13.1",
     "qrcode": "^1.5.4",
     "simple-statistics": "^7.8.8",
     "uuid": "^11.0.5"

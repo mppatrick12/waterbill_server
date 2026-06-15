@@ -1,5 +1,7 @@
 import * as cardService from '../services/cardService.js';
 import { supabase } from '../config/supabase.js';
+import { sendEmail, buildRechargeEmail } from '../services/emailService.js';
+import { notifyAdmins, createSystemNotification } from './notificationController.js';
 
 export async function listAdminCards(req, res, next) {
   try {
@@ -8,18 +10,20 @@ export async function listAdminCards(req, res, next) {
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (cardsError) throw new Error(cardsError.message);
+    // Supabase might be waking up (free tier timeout) — return empty list gracefully
+    if (cardsError) {
+      console.warn('[listAdminCards] Supabase error:', cardsError.message);
+      return res.json({ success: true, cards: [], warning: 'Database temporarily unavailable, please retry.' });
+    }
 
     const userIds = [...new Set((cards || []).map((card) => card.user_id).filter(Boolean))];
     const profileMap = new Map();
 
     if (userIds.length) {
-      const { data: profiles, error: profilesError } = await supabase
+      const { data: profiles } = await supabase
         .from('profiles')
         .select('user_id, full_name')
         .in('user_id', userIds);
-
-      if (profilesError) throw new Error(profilesError.message);
 
       for (const profile of profiles || []) {
         profileMap.set(profile.user_id, profile.full_name);
@@ -106,6 +110,48 @@ export async function rechargeAdminCard(req, res, next) {
     }
 
     const card = await cardService.rechargeCard(cardId, Number(amount_rwf), null);
+
+    // Send recharge email to the card owner (non-blocking)
+    if (card.user_id) {
+      (async () => {
+        try {
+          const { data: profile } = await supabase
+            .from('profiles').select('full_name').eq('user_id', card.user_id).single();
+          const { data: authUser } = await supabase.auth.admin.getUserById(card.user_id);
+          const email = authUser?.user?.email;
+          if (email) {
+            await sendEmail({
+              to:      email,
+              toName:  profile?.full_name,
+              subject: `💳 Your WASAC card has been recharged — ${Number(amount_rwf).toLocaleString()} RWF`,
+              html:    buildRechargeEmail({
+                userName:       profile?.full_name,
+                amount:         amount_rwf,
+                newBalance:     card.balance_rwf,
+                cardUid:        card.rfid_uid || card.card_uid,
+              }),
+            });
+          }
+        } catch (e) { console.warn('[Email] Recharge email failed:', e.message); }
+      })();
+    }
+
+    // Notify the card owner (customer) too
+    if (card.user_id) {
+      createSystemNotification({
+        userId: card.user_id,
+        type:   'system',
+        title:  `💳 Card recharged — +${Number(amount_rwf).toLocaleString()} RWF`,
+        body:   `Your new balance is ${Number(card.balance_rwf).toLocaleString()} RWF.`,
+      }).catch(() => {});
+    }
+
+    // Notify admins
+    notifyAdmins({
+      type:  'system',
+      title: `💳 Card recharged — +${Number(amount_rwf).toLocaleString()} RWF`,
+      body:  `Card: ${card.rfid_uid || card.card_uid || card.id} | New balance: ${Number(card.balance_rwf).toLocaleString()} RWF`,
+    }).catch(() => {});
 
     res.json({ success: true, card, message: 'Recharge successful' });
   } catch (err) {

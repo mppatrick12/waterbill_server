@@ -1,5 +1,6 @@
 import { supabase } from '../config/supabase.js';
 import { ROLES, ACCOUNT_STATUS } from '../config/constants.js';
+import { notifyAdmins, createSystemNotification } from './notificationController.js';
 
 export async function listUsers(req, res, next) {
   try {
@@ -100,6 +101,44 @@ export async function updateUserRole(req, res, next) {
   }
 }
 
+/* PATCH /users/:userId — admin updates name, email, role of any user */
+export async function adminUpdateUser(req, res, next) {
+  try {
+    const { userId } = req.params;
+    const { full_name, email, role } = req.body;
+
+    const profileUpdates = {};
+    if (full_name !== undefined) profileUpdates.full_name = full_name.trim();
+    if (role      !== undefined) profileUpdates.role      = role;
+
+    if (Object.keys(profileUpdates).length > 0) {
+      const { error: profileErr } = await supabase
+        .from('profiles')
+        .update(profileUpdates)
+        .eq('user_id', userId);
+      if (profileErr) throw new Error(profileErr.message);
+    }
+
+    // Update email in Supabase Auth — email_confirm:true skips verification email
+    if (email !== undefined && email.trim()) {
+      const { error: emailErr } = await supabase.auth.admin.updateUserById(userId, {
+        email:         email.trim().toLowerCase(),
+        email_confirm: true,   // admin override — no verification email needed
+      });
+      if (emailErr) throw new Error(emailErr.message);
+
+      // Also sync email into profiles table if it exists there
+      try {
+        await supabase.from('profiles').update({ email: email.trim().toLowerCase() }).eq('user_id', userId);
+      } catch (_) { /* non-fatal */ }
+    }
+
+    res.json({ success: true, message: 'User updated successfully.' });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function createUser(req, res, next) {
   try {
     const { email, username, password = '12345678', fullName, full_name, phone, role = ROLES.CUSTOMER } = req.body;
@@ -180,6 +219,21 @@ export async function createUser(req, res, next) {
         console.warn('Auto card creation failed:', e.message);
       }
     }
+
+    // Welcome notification for the new user
+    createSystemNotification({
+      userId: authUser.id,
+      type:   'system',
+      title:  '👋 Welcome to Smart Water Bill!',
+      body:   `Hello ${name}, your account is ready. You can now recharge your card and fetch water at any WASAC kiosk.`,
+    }).catch(() => {});
+
+    // Notify admins about the new registration
+    notifyAdmins({
+      type:  'system',
+      title: `👤 New user registered — ${name}`,
+      body:  `Email: ${loginEmail} | Role: ${userRole}`,
+    }).catch(() => {});
 
     res.status(201).json({
       success: true,
