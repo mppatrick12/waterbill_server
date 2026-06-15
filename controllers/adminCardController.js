@@ -8,18 +8,20 @@ export async function listAdminCards(req, res, next) {
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (cardsError) throw new Error(cardsError.message);
+    // Supabase might be waking up (free tier timeout) — return empty list gracefully
+    if (cardsError) {
+      console.warn('[listAdminCards] Supabase error:', cardsError.message);
+      return res.json({ success: true, cards: [], warning: 'Database temporarily unavailable, please retry.' });
+    }
 
     const userIds = [...new Set((cards || []).map((card) => card.user_id).filter(Boolean))];
     const profileMap = new Map();
 
     if (userIds.length) {
-      const { data: profiles, error: profilesError } = await supabase
+      const { data: profiles } = await supabase
         .from('profiles')
         .select('user_id, full_name')
         .in('user_id', userIds);
-
-      if (profilesError) throw new Error(profilesError.message);
 
       for (const profile of profiles || []) {
         profileMap.set(profile.user_id, profile.full_name);

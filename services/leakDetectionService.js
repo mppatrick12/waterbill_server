@@ -2,6 +2,7 @@ import { supabase } from '../config/supabase.js';
 import { leakConfig } from '../config/brevo.js';
 import { ALERT_SEVERITY, SESSION_STATUS } from '../config/constants.js';
 import { sendLeakAlert } from './brevoEmailService.js';
+import { createSystemNotification } from '../controllers/notificationController.js';
 
 export async function checkLeakConditions(session, flowTick) {
   const alerts = [];
@@ -60,6 +61,16 @@ export async function createLeakAlert({ userId, meterId, sessionId, reason, seve
       .from('water_sessions')
       .update({ status: SESSION_STATUS.LEAK_SUSPECTED })
       .eq('id', sessionId);
+  }
+
+  // Push in-app notification to the user
+  if (userId) {
+    await createSystemNotification({
+      userId,
+      type:  'leak',
+      title: '🚨 Leak detected',
+      body:  `${message} Reason: ${reason}. Please check your water point.`,
+    });
   }
 
   if (profile?.email) {

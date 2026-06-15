@@ -56,6 +56,17 @@ export async function registerAdminDevice(req, res, next) {
   }
 }
 
+export async function deleteAdminDevice(req, res, next) {
+  try {
+    const { deviceId } = req.params;
+    const { deleteDevice } = await import('../services/deviceService.js');
+    await deleteDevice(deviceId);
+    res.json({ success: true, message: `Device ${deviceId} deleted.` });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getAdminMqttStatus(req, res, next) {
   try {
     const connected = isMqttConnected();
