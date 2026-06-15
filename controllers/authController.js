@@ -266,3 +266,44 @@ export async function ensureAdmin(req, res, next) {
     next(err);
   }
 }
+
+export async function updateProfile(req, res, next) {
+  try {
+    const userId = req.user?.id || req.user?.user_id;
+    const { full_name } = req.body;
+
+    if (!full_name || !full_name.trim()) {
+      return res.status(400).json({ success: false, error: 'full_name is required' });
+    }
+
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .update({ full_name: full_name.trim(), updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    res.json({ success: true, profile });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function changePassword(req, res, next) {
+  try {
+    const userId = req.user?.id || req.user?.user_id;
+    const { new_password } = req.body;
+
+    if (!new_password || new_password.length < 8) {
+      return res.status(400).json({ success: false, error: 'New password must be at least 8 characters' });
+    }
+
+    const { error } = await supabase.auth.admin.updateUserById(userId, { password: new_password });
+    if (error) throw new Error(error.message);
+
+    res.json({ success: true, message: 'Password changed successfully' });
+  } catch (err) {
+    next(err);
+  }
+}

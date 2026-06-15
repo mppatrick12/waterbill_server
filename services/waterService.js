@@ -5,6 +5,9 @@ import { publishDeviceCommand } from './mqttService.js';
 import { getCardByUid, deductBalance, reserveAndCheck, getProfileByUserId } from './cardService.js';
 import { processFlowTick } from './leakDetectionService.js';
 import { updateDailyUsage } from './analyticsService.js';
+import { createSystemNotification, notifyAdmins } from '../controllers/notificationController.js';
+import { cacheSession, updateCachedSession, evictSession, cacheCardData } from './sessionCache.js';
+import { sendEmail, buildDispenseEmail } from './emailService.js';
 
 export async function identifyCard(cardUid) {
   const card = await getCardByUid(cardUid);
@@ -106,7 +109,23 @@ export async function authorizeWaterFetch({ cardUid, requestedMl, meterId, devic
         .maybeSingle();
       if (meter && meter.esp32_device_id) deviceId = meter.esp32_device_id;
     } catch (err) {
-      // ignore — device will remain undefined
+      // ignore
+    }
+  }
+
+  // Last resort: broadcast to all registered online devices so the nearest kiosk picks it up
+  if (!deviceId) {
+    try {
+      const { data: devices } = await supabase
+        .from('devices')
+        .select('device_id')
+        .eq('status', 'online')
+        .limit(5);
+      if (devices && devices.length > 0) {
+        deviceId = devices[0].device_id; // primary target
+      }
+    } catch (err) {
+      // ignore
     }
   }
 
@@ -128,6 +147,11 @@ export async function authorizeWaterFetch({ cardUid, requestedMl, meterId, devic
     .single();
 
   if (error) throw new Error(error.message);
+
+  // Populate in-memory cache so getSessionById responds instantly (no Supabase round-trip)
+  cacheSession(session);
+  // Cache card data so MQTT card-tap handler avoids a Supabase lookup
+  cacheCardData(card.rfid_uid, card);
 
   // Notify device (if provided) to prepare for dispense — non-blocking
   if (deviceId) {
@@ -207,7 +231,20 @@ export async function completeWaterFetch(sessionId) {
 
   if (error || !session) throw new Error('SESSION_NOT_FOUND');
 
-  const actualCost = calculateCost(session.volume_ml);
+  // Fallback: if flow sensor gave no pulses (volume_ml=0) but pump actually ran,
+  // use requested_ml so the user gets charged correctly
+  let actualVolumeMl = session.volume_ml || 0;
+  if (actualVolumeMl === 0 && (session.requested_ml || 0) > 0) {
+    actualVolumeMl = session.requested_ml;
+    // Save the fallback volume so getSession also returns correct data
+    await supabase
+      .from('water_sessions')
+      .update({ volume_ml: actualVolumeMl })
+      .eq('id', sessionId);
+    console.log(`[Water] Session ${sessionId}: volume_ml was 0, using requested_ml=${actualVolumeMl} as fallback`);
+  }
+
+  const actualCost = calculateCost(actualVolumeMl);
   const refundAmount = Math.max(0, (session.reserved_cost_rwf || 0) - actualCost);
 
   await deductBalance(session.card_id, actualCost);
@@ -226,11 +263,65 @@ export async function completeWaterFetch(sessionId) {
 
   if (completeError) throw new Error(completeError.message);
 
+  // Update cache with final data then evict (session is done)
+  updateCachedSession(sessionId, {
+    status: SESSION_STATUS.COMPLETED,
+    cost_rwf: actualCost,
+    volume_ml: actualVolumeMl,
+    ended_at: completed.ended_at,
+  });
+  // Keep in cache briefly so the frontend can read the final state, then evict
+  setTimeout(() => evictSession(sessionId), 30_000);
+
   await updateDailyUsage(session.user_id, session.volume_ml, actualCost);
 
   const { data: card } = await supabase.from('cards').select('balance_rwf').eq('id', session.card_id).single();
+  const newBalance = card?.balance_rwf ?? 0;
 
-  return { session: completed, actualCost, newBalance: card?.balance_rwf };
+  // Send dispensing receipt email (non-blocking)
+  if (session.user_id) {
+    (async () => {
+      try {
+        const { data: profile } = await supabase
+          .from('profiles').select('full_name').eq('user_id', session.user_id).single();
+        const { data: authUser } = await supabase.auth.admin.getUserById(session.user_id);
+        const email = authUser?.user?.email;
+        if (email) {
+          await sendEmail({
+            to:      email,
+            toName:  profile?.full_name,
+            subject: `💧 Water receipt — ${(actualVolumeMl / 1000).toFixed(2)} L · ${actualCost.toLocaleString()} RWF`,
+            html:    buildDispenseEmail({
+              userName:         profile?.full_name,
+              volumeL:          actualVolumeMl / 1000,
+              costRwf:          actualCost,
+              remainingBalance: newBalance,
+              sessionId:        sessionId,
+            }),
+          });
+        }
+      } catch (e) { console.warn('[Email] Dispense email failed:', e.message); }
+    })();
+  }
+
+  // Notify customer if balance is low
+  if (newBalance < 500) {
+    await createSystemNotification({
+      userId: session.user_id,
+      type:   'low_balance',
+      title:  'Low card balance',
+      body:   `Your balance is ${newBalance.toLocaleString()} RWF. Please recharge to continue using water services.`,
+    });
+  }
+
+  // Notify admins: session complete
+  notifyAdmins({
+    type:  'system',
+    title: `💧 Water dispensed — ${(actualVolumeMl / 1000).toFixed(2)} L`,
+    body:  `Cost: ${actualCost.toLocaleString()} RWF | Remaining balance: ${newBalance.toLocaleString()} RWF`,
+  }).catch(() => {});
+
+  return { session: completed, actualCost, newBalance };
 }
 
 export async function getUserSessions(userId, limit = 20) {
@@ -242,4 +333,37 @@ export async function getUserSessions(userId, limit = 20) {
     .limit(limit);
   if (error) throw new Error(error.message);
   return data;
+}
+
+export async function getAllTransactions(limit = 100, offset = 0) {
+  const { data: sessions, error: sessionsError } = await supabase
+    .from('water_sessions')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (sessionsError) throw new Error(sessionsError.message);
+
+  const userIds = [...new Set((sessions || []).map((s) => s.user_id).filter(Boolean))];
+  const profileMap = new Map();
+
+  if (userIds.length) {
+    const { data: profiles, error: profilesError } = await supabase
+      .from('profiles')
+      .select('user_id, full_name, email, phone')
+      .in('user_id', userIds);
+
+    if (profilesError) throw new Error(profilesError.message);
+
+    for (const profile of profiles || []) {
+      profileMap.set(profile.user_id, profile);
+    }
+  }
+
+  return (sessions || []).map((session) => ({
+    ...session,
+    customer_name: profileMap.get(session.user_id)?.full_name || 'Unknown',
+    customer_email: profileMap.get(session.user_id)?.email || '-',
+    customer_phone: profileMap.get(session.user_id)?.phone || '-',
+  }));
 }

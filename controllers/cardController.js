@@ -49,6 +49,34 @@ export async function rechargeCard(req, res, next) {
     }
     const userId = req.profile.role === 'customer' ? req.user.id : null;
     const card = await cardService.rechargeCard(card_id, amount_rwf, userId);
+
+    // Send recharge confirmation email (non-blocking)
+    if (req.user?.id) {
+      (async () => {
+        try {
+          const { sendEmail, buildRechargeEmail } = await import('../services/emailService.js');
+          const { supabase } = await import('../config/supabase.js');
+          const { data: profile } = await supabase
+            .from('profiles').select('full_name').eq('user_id', req.user.id).single();
+          const { data: authUser } = await supabase.auth.admin.getUserById(req.user.id);
+          const email = authUser?.user?.email;
+          if (email) {
+            await sendEmail({
+              to:      email,
+              toName:  profile?.full_name,
+              subject: `💳 Your WASAC card has been recharged — ${Number(amount_rwf).toLocaleString()} RWF`,
+              html:    buildRechargeEmail({
+                userName:   profile?.full_name,
+                amount:     amount_rwf,
+                newBalance: card.balance_rwf,
+                cardUid:    card.rfid_uid || card.card_uid,
+              }),
+            });
+          }
+        } catch (e) { console.warn('[Email] Recharge email failed:', e.message); }
+      })();
+    }
+
     res.json({ success: true, card, message: 'Recharge successful' });
   } catch (err) {
     next(err);
